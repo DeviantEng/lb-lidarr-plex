@@ -1,5 +1,6 @@
 import requests
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from config import MB_MIRROR, LOCAL_MB_MIRROR
 
 def get_musicbrainz_base_url():
@@ -12,7 +13,6 @@ def get_musicbrainz_base_url():
 def get_artist_info(recording_mbid):
     """
     Get artist information from MusicBrainz for a recording MBID
-    This is the legacy single-request method for backward compatibility
     
     Args:
         recording_mbid (str): MusicBrainz recording ID
@@ -50,94 +50,84 @@ def get_artist_info(recording_mbid):
 
 def get_artist_info_batch(recording_mbids, batch_size=50):
     """
-    Get artist information for multiple recording MBIDs in batches (EFFICIENT METHOD)
+    Get artist information for multiple recording MBIDs using individual requests with rate limiting
+    NOTE: MusicBrainz doesn't support true batch queries for recordings, so we do efficient individual requests
     
     Args:
         recording_mbids (list): List of MusicBrainz recording IDs
-        batch_size (int): Number of recordings to query per request (max 50 for public MB)
+        batch_size (int): Number of concurrent requests (ignored for public MB due to rate limits)
     
     Returns:
         dict: {recording_mbid: (artist_mbid, artist_name, track_title), ...}
     """
-    base_url = get_musicbrainz_base_url()
-    headers = {"User-Agent": "LB-to-Lidarr-Plex/1.0 ( https://github.com/your-repo )"}
     results = {}
+    total = len(recording_mbids)
     
-    # Determine batch size based on whether using local mirror
     if LOCAL_MB_MIRROR:
-        # Local mirrors can handle larger batches
-        actual_batch_size = min(batch_size, 100)
-        rate_limit_delay = 0.1  # Minimal delay for local mirrors
+        # Use threading for local mirrors since there are no rate limits
+        print(f"🚀 Using concurrent requests for {total} recordings (local mirror)")
+        return _get_artist_info_concurrent(recording_mbids, max_workers=min(10, batch_size))
     else:
-        # Public MusicBrainz: respect rate limits
-        actual_batch_size = min(batch_size, 25)  # Conservative batch size
-        rate_limit_delay = 1.1  # Just over 1 second to respect rate limits
+        # Use sequential requests with rate limiting for public API
+        print(f"🔄 Using sequential requests for {total} recordings (public API with rate limiting)")
+        return _get_artist_info_sequential(recording_mbids)
+
+def _get_artist_info_sequential(recording_mbids):
+    """Sequential processing with rate limiting for public MusicBrainz API"""
+    results = {}
+    total = len(recording_mbids)
     
-    total_batches = (len(recording_mbids) + actual_batch_size - 1) // actual_batch_size
-    print(f"🔄 Processing {len(recording_mbids)} recordings in {total_batches} batches of {actual_batch_size}")
-    
-    for i in range(0, len(recording_mbids), actual_batch_size):
-        batch = recording_mbids[i:i+actual_batch_size]
-        batch_num = (i // actual_batch_size) + 1
+    for i, recording_mbid in enumerate(recording_mbids, 1):
+        print(f"  Processing {i}/{total}: {recording_mbid}")
+        results[recording_mbid] = get_artist_info(recording_mbid)
         
-        print(f"  Batch {batch_num}/{total_batches}: {len(batch)} recordings...")
-        
-        try:
-            # Build query URL with multiple recording IDs
-            url = f"{base_url}/recording"
-            params = {
-                "recording": batch,  # Can pass multiple IDs
-                "inc": "artists",
-                "fmt": "json"
-            }
-            
-            response = requests.get(url, params=params, headers=headers)
-            response.raise_for_status()
-            data = response.json()
-            
-            # Parse the batch response
-            recordings = data.get("recordings", [])
-            
-            for recording in recordings:
-                recording_id = recording.get("id")
-                title = recording.get("title", "")
-                
-                if "artist-credit" in recording and recording["artist-credit"]:
-                    artist = recording["artist-credit"][0]["artist"]
-                    artist_mbid = artist.get("id")
-                    artist_name = artist.get("name", "")
-                    
-                    results[recording_id] = (artist_mbid, artist_name, title)
-                else:
-                    results[recording_id] = (None, None, title)
-            
-            # Rate limiting compliance
-            if batch_num < total_batches:  # Don't delay after the last batch
-                time.sleep(rate_limit_delay)
-                
-        except requests.exceptions.RequestException as e:
-            print(f"❌ Error fetching batch {batch_num}: {e}")
-            # Mark failed recordings as None
-            for recording_id in batch:
-                if recording_id not in results:
-                    results[recording_id] = (None, None, None)
-            continue
-        except (KeyError, IndexError) as e:
-            print(f"❌ Error parsing batch {batch_num}: {e}")
-            # Mark failed recordings as None
-            for recording_id in batch:
-                if recording_id not in results:
-                    results[recording_id] = (None, None, None)
-            continue
+        # Rate limiting: MusicBrainz allows 1 request per second
+        if i < total:  # Don't delay after the last request
+            time.sleep(1.1)  # Slightly over 1 second to be safe
     
     successful = sum(1 for result in results.values() if result[0] is not None)
-    print(f"✅ Batch processing complete: {successful}/{len(recording_mbids)} recordings processed successfully")
+    print(f"✅ Sequential processing complete: {successful}/{total} recordings processed successfully")
+    
+    return results
+
+def _get_artist_info_concurrent(recording_mbids, max_workers=10):
+    """Concurrent processing for local MusicBrainz mirrors"""
+    results = {}
+    total = len(recording_mbids)
+    processed = 0
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all requests
+        future_to_mbid = {
+            executor.submit(get_artist_info, mbid): mbid 
+            for mbid in recording_mbids
+        }
+        
+        # Collect results as they complete
+        for future in as_completed(future_to_mbid):
+            mbid = future_to_mbid[future]
+            processed += 1
+            
+            try:
+                result = future.result()
+                results[mbid] = result
+                
+                # Progress indicator
+                if processed % 50 == 0 or processed == total:
+                    print(f"  Processed {processed}/{total} recordings...")
+                    
+            except Exception as e:
+                print(f"Error processing {mbid}: {e}")
+                results[mbid] = (None, None, None)
+    
+    successful = sum(1 for result in results.values() if result[0] is not None)
+    print(f"✅ Concurrent processing complete: {successful}/{total} recordings processed successfully")
     
     return results
 
 def get_artist_info_smart(recording_mbids):
     """
-    Smart wrapper that chooses the best method based on the number of recordings
+    Smart wrapper that chooses the best method based on the number of recordings and API type
     
     Args:
         recording_mbids (list): List of recording MBIDs
@@ -145,16 +135,29 @@ def get_artist_info_smart(recording_mbids):
     Returns:
         dict: {recording_mbid: (artist_mbid, artist_name, track_title), ...}
     """
-    if len(recording_mbids) <= 5:
+    total = len(recording_mbids)
+    
+    if total == 0:
+        return {}
+    elif total <= 5:
         # For small numbers, use individual requests
-        print(f"🔍 Using individual requests for {len(recording_mbids)} recordings")
+        print(f"🔍 Using individual requests for {total} recordings")
         results = {}
         for recording_mbid in recording_mbids:
             results[recording_mbid] = get_artist_info(recording_mbid)
-            if not LOCAL_MB_MIRROR:
+            if not LOCAL_MB_MIRROR and len(recording_mbids) > 1:
                 time.sleep(1.1)  # Rate limit for public API
         return results
     else:
-        # For larger numbers, use batch processing
-        print(f"🚀 Using batch processing for {len(recording_mbids)} recordings")
+        # For larger numbers, use the batch processing method
+        print(f"🚀 Using batch processing for {total} recordings")
         return get_artist_info_batch(recording_mbids)
+
+# Legacy function name for backward compatibility
+def get_artist_info_batch_legacy(recording_mbids, batch_size=50):
+    """
+    DEPRECATED: This was the old broken batch implementation
+    Use get_artist_info_batch() or get_artist_info_smart() instead
+    """
+    print("⚠️  Warning: Using deprecated batch function. Consider using get_artist_info_smart() instead.")
+    return get_artist_info_batch(recording_mbids, batch_size)
