@@ -150,14 +150,14 @@ def create_plex_playlist():
     
     try:
         # Import the working Plex functionality
-        from listenbrainz_to_plex import create_playlist_from_recommendations_working
+        from listenbrainz_to_plex import create_playlist_from_recommendations
         
         print("🎵 Creating Plex playlist from recent recommendations...")
         
         # Use current date for playlist name
         playlist_name = f"ListenBrainz Weekly - {datetime.now().strftime('%Y-%m-%d')}"
         
-        success = create_playlist_from_recommendations_working(
+        success = create_playlist_from_recommendations(
             plex_url=PLEX_BASE_URL,
             plex_token=PLEX_TOKEN,
             listenbrainz_user=USER,
