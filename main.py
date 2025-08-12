@@ -150,7 +150,7 @@ def create_plex_playlist():
     
     try:
         # Import the working Plex functionality
-        from working_listenbrainz_to_plex import create_playlist_from_recommendations_working
+        from listenbrainz_to_plex import create_playlist_from_recommendations_working
         
         print("🎵 Creating Plex playlist from recent recommendations...")
         
