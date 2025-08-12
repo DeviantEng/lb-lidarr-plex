@@ -179,35 +179,35 @@ def create_plex_playlist():
         print(f"❌ Error creating Plex playlist: {e}")
         return False
 
-def lidarr_update_task():
+def lidarr_update_task(update_interval):
     """Background task for updating Lidarr data"""
     def run():
         while True:
             try:
                 print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🔄 Starting Lidarr data update...")
                 process_listenbrainz_data()
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⏰ Next Lidarr update in {LIDARR_UPDATE_INTERVAL} seconds")
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⏰ Next Lidarr update in {update_interval} seconds")
             except Exception as e:
                 print(f"❌ Error in Lidarr update task: {e}")
             
-            time.sleep(LIDARR_UPDATE_INTERVAL)
+            time.sleep(update_interval)
     
     thread = threading.Thread(target=run, daemon=True, name="LidarrUpdater")
     thread.start()
     return thread
 
-def plex_update_task():
+def plex_update_task(update_interval):
     """Background task for updating Plex playlists"""
     def run():
         while True:
             try:
                 print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🎵 Starting Plex playlist update...")
                 create_plex_playlist()
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⏰ Next Plex update in {PLEX_UPDATE_INTERVAL} seconds")
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⏰ Next Plex update in {update_interval} seconds")
             except Exception as e:
                 print(f"❌ Error in Plex update task: {e}")
             
-            time.sleep(PLEX_UPDATE_INTERVAL)
+            time.sleep(update_interval)
     
     thread = threading.Thread(target=run, daemon=True, name="PlexUpdater")
     thread.start()
@@ -249,11 +249,15 @@ def run_once():
     
     return True
 
-def run_daemon_mode():
+def run_daemon_mode(lidarr_interval=None, plex_interval=None):
     """Run in daemon mode with scheduled updates and HTTP server"""
+    # Use provided intervals or defaults
+    lidarr_update_interval = lidarr_interval or LIDARR_UPDATE_INTERVAL
+    plex_update_interval = plex_interval or PLEX_UPDATE_INTERVAL
+    
     print("🚀 Starting daemon mode")
-    print(f"📊 Lidarr update interval: {LIDARR_UPDATE_INTERVAL} seconds ({LIDARR_UPDATE_INTERVAL/3600:.1f} hours)")
-    print(f"🎵 Plex update interval: {PLEX_UPDATE_INTERVAL} seconds ({PLEX_UPDATE_INTERVAL/3600:.1f} hours)")
+    print(f"📊 Lidarr update interval: {lidarr_update_interval} seconds ({lidarr_update_interval/3600:.1f} hours)")
+    print(f"🎵 Plex update interval: {plex_update_interval} seconds ({plex_update_interval/3600:.1f} hours)")
     print(f"📅 Plex playlist days filter: {PLEX_DAYS_FILTER} days")
     print()
     
@@ -263,8 +267,8 @@ def run_daemon_mode():
     
     # Start scheduled tasks
     print("⏰ Starting background update tasks...")
-    lidarr_thread = lidarr_update_task()
-    plex_thread = plex_update_task()
+    lidarr_thread = lidarr_update_task(lidarr_update_interval)
+    plex_thread = plex_update_task(plex_update_interval)
     
     print("✅ Background tasks started")
     print()
