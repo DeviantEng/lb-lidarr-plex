@@ -1,5 +1,8 @@
 FROM python:3.11-slim
 
+# Set Python to run unbuffered
+ENV PYTHONUNBUFFERED=1
+
 # Set working directory
 WORKDIR /app
 
@@ -34,5 +37,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:${HTTP_PORT:-8000}/health || exit 1
 
-# Default command (daemon mode - updated from "server")
+# Default command (daemon mode)
 CMD ["python", "main.py", "--mode", "daemon"]

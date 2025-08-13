@@ -10,6 +10,9 @@ services:
     volumes:
       - ./data:/app/data  # Single mount for config and logs
     environment:
+      # Python unbuffered output (critical for Docker logging)
+      - PYTHONUNBUFFERED=1
+      
       # ListenBrainz Configuration
       - LB_USER=your_listenbrainz_username
       - METABRAINZ_TOKEN=your_metabrainz_token
@@ -32,6 +35,14 @@ services:
       
       # Logging Configuration (disabled by default)
       - ENABLE_LOGGING=FALSE  # Set to TRUE to enable file logging
+    
+    # Logging configuration for Docker
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
