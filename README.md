@@ -1,56 +1,38 @@
 # ListenBrainz to Lidarr and Plex Integration
 
-A Docker application that fetches your ListenBrainz weekly recommendations and:
-1. **Serves a JSON API** for Lidarr custom import lists (artist MBIDs)
-2. **Creates Plex playlists** with matched tracks from your library
-
-## Features
-
-- 🎵 **Dual Integration**: Lidarr (artist discovery from ALL historical data) + Plex (playlist creation from recent tracks)
-- 🐋 **Docker Ready**: Complete containerized solution
-- ⚙️ **Flexible Config**: File-based or environment variable configuration
-- 🌐 **HTTP API**: RESTful endpoint for Lidarr integration
-- 🎯 **Smart Matching**: Fuzzy track matching with scoring system
-- 📊 **Health Monitoring**: Built-in health checks and status endpoints
-- 📅 **Date Filtering**: Lidarr gets all artists, Plex gets recent tracks (configurable days)
+Automatically sync your ListenBrainz data to create:
+- **Lidarr artist lists** for music discovery
+- **Plex playlists** from your Weekly Exploration recommendations
 
 ## Quick Start
 
-### 1. Using Docker Compose (Recommended)
+### Docker Compose (Recommended)
 
-```bash
-# Clone and configure
-git clone <repo>
-cd lb-to-lidarr_plex
-
-# Edit docker-compose.yml with your credentials
-vim docker-compose.yml
-
-# Start the service
-docker-compose up -d
+```yaml
+version: '3.8'
+services:
+  lb-lidarr-plex:
+    image: ghcr.io/devianteng/lb-lidarr-plex:latest
+    container_name: lb-lidarr-plex
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - LB_USER=your_listenbrainz_username
+      - METABRAINZ_TOKEN=your_metabrainz_token
+      - PLEX_BASE_URL=http://your-plex-server:32400
+      - PLEX_TOKEN=your_plex_token
+      - PLEX_PLAYLIST_NAME=ListenBrainz Weekly Discovery
+    volumes:
+      - ./config:/config
 ```
 
-### 2. Using Docker Swarm Stack
-
-```bash
-# Edit docker-stack.yml with your credentials
-vim docker-stack.yml
-
-# Deploy the stack
-docker stack deploy -c docker-stack.yml lb-lidarr-plex
-
-# Check status
-docker service ls
-docker service logs lb-lidarr-plex_lb-lidarr-plex
-```
-
-### 3. Using Docker Run
+### Docker Run
 
 ```bash
 docker run -d \
   --name lb-lidarr-plex \
   -p 8000:8000 \
-  -v ./config:/config \
   -e LB_USER=your_username \
   -e METABRAINZ_TOKEN=your_token \
   -e PLEX_BASE_URL=http://plex:32400 \
@@ -60,163 +42,98 @@ docker run -d \
 
 ## Configuration
 
-Configuration is loaded in this priority order:
-1. `/config/config.env` file (highest priority)
-2. Docker environment variables 
-3. Default values (lowest priority)
+### Required Settings
+- `LB_USER` - Your ListenBrainz username
+- `METABRAINZ_TOKEN` - Get from [ListenBrainz settings](https://listenbrainz.org/settings/)
 
-### Required Variables
+### Optional Settings
+- `PLEX_BASE_URL` - Plex server URL (for playlist creation)
+- `PLEX_TOKEN` - Plex authentication token
+- `PLEX_PLAYLIST_NAME` - Custom playlist name (default: "ListenBrainz Weekly Discovery")
+- `HTTP_PORT` - API port (default: 8000)
+- `LIDARR_UPDATE_INTERVAL` - Update frequency in seconds (default: 86400)
+- `PLEX_UPDATE_INTERVAL` - Playlist update frequency in seconds (default: 86400)
 
-```bash
-LB_USER=your_listenbrainz_username
-METABRAINZ_TOKEN=your_metabrainz_token
-```
+## How It Works
 
-### Optional Variables
+### For Lidarr (Artist Discovery)
+1. Fetches recommendations from ListenBrainz collaborative filtering
+2. Extracts unique artist MBIDs (~150-200 artists)
+3. Serves JSON API at `http://localhost:8000/` for Lidarr import
 
-```bash
-# MusicBrainz
-MB_MIRROR=musicbrainz.org  # or your local mirror like 192.168.1.100:5000
+### For Plex (Weekly Playlist)
+1. Gets tracks from your ListenBrainz Weekly Exploration playlist
+2. Matches tracks in your Plex library (typically 95%+ success rate)
+3. Creates/updates playlist with matched tracks
 
-# Plex (required for playlist creation)
-PLEX_BASE_URL=http://your-plex-server:32400
-PLEX_TOKEN=your_plex_token
+## Integration Setup
 
-# Application
-HTTP_PORT=8000
-NULLONLY=FALSE  # Set to TRUE to only include unlistened recommendations
-PLEX_DAYS_FILTER=14  # Days to look back for Plex playlists (Lidarr uses all historical data)
-LIDARR_UPDATE_INTERVAL=86400  # Lidarr update interval in seconds (24 hours)
-PLEX_UPDATE_INTERVAL=86400    # Plex update interval in seconds (24 hours)
-```
-
-## Usage
-
-### Server Mode (Default)
-Runs HTTP server for continuous Lidarr integration:
-
-```bash
-docker run listenbrainz-integration
-# or
-python main.py --mode server
-```
-
-**Endpoints:**
-- `http://localhost:8000/` - Lidarr custom import list (JSON)
-- `http://localhost:8000/health` - Health check and status
-
-### One-Time Mode
-Process once and save to file:
-
-```bash
-python main.py --mode once
-```
-
-## Lidarr Integration
-
-1. **Add Custom Import List** in Lidarr:
-   - Type: `Custom`
+### Lidarr
+1. Go to **Settings → Import Lists**
+2. Add **Custom Import List**:
    - URL: `http://your-docker-host:8000/`
-   - Method: `GET`
+   - Method: GET
+3. Set update schedule (daily/weekly recommended)
 
-2. **Configure Schedule**:
-   - Set update interval (e.g., daily/weekly)
-   - Enable automatic import
+### Plex
+Playlists are created automatically. The app will:
+- Create playlist on first run
+- Update same playlist on subsequent runs
+- Use tracks from your Weekly Exploration playlist
 
-## Plex Integration
+## API Endpoints
 
-The application automatically creates weekly playlists in Plex:
-- **Playlist Name**: `ListenBrainz Weekly - YYYY-MM-DD`
-- **Track Source**: Only tracks added in the last 14 days (configurable)
-- **Track Limit**: 50 tracks (configurable)
-- **Matching**: Smart fuzzy matching with scoring
-- **Updates**: New playlist created each run
-- **Separate from Lidarr**: Lidarr uses ALL historical data for artist discovery
+- `GET /` - Lidarr artist import list (JSON)
+- `GET /health` - Health check and status
 
-## API Response Format
+## Requirements
 
-### `/` (Lidarr Import List)
-```json
-{
-  "artists": [
-    {
-      "MusicBrainzId": "artist-mbid-here",
-      "title": "Artist Name"
-    }
-  ],
-  "count": 25,
-  "last_updated": "2025-01-12T10:30:00Z",
-  "source": "ListenBrainz Weekly Recommendations"
-}
-```
-
-### `/health` (Health Check)
-```json
-{
-  "status": "healthy",
-  "artists_count": 25,
-  "last_updated": "2025-01-12T10:30:00Z",
-  "config": {
-    "user": "your_username",
-    "null_only": true,
-    "plex_configured": true
-  }
-}
-```
-
-## File Structure
-
-```
-/app/
-├── main.py                    # Main application
-├── config.py                  # Configuration management
-├── listenbrainz_api.py        # ListenBrainz integration
-├── musicbrainz_api.py         # MusicBrainz integration
-├── listenbrainz_to_plex.py    # Plex integration
-├── plex_api.py                # Plex search functionality
-├── requirements.txt           # Python dependencies
-├── Dockerfile                 # Container definition
-├── docker-compose.yml        # Compose configuration
-└── docker-stack.yml          # Docker Swarm stack
-
-/config/
-└── config.env               # Persistent configuration
-```
-
-## Development
-
-### Local Development
-```bash
-pip install -r requirements.txt
-export LB_USER=your_username
-export METABRAINZ_TOKEN=your_token
-python main.py --mode once
-```
-
-### Building Docker Image
-```bash
-docker build -t listenbrainz-integration .
-```
+- **ListenBrainz account** with listening history
+- **MetaBrainz token** for API access
+- **Plex server** (optional, for playlists)
+- **Lidarr** (optional, for artist imports)
 
 ## Troubleshooting
 
-### Check Service Health
+### Check Status
 ```bash
 curl http://localhost:8000/health
 ```
 
 ### View Logs
 ```bash
-docker-compose logs -f
+docker logs lb-lidarr-plex
 ```
 
 ### Common Issues
+- **No recommendations**: Verify LB_USER and METABRAINZ_TOKEN
+- **Plex playlist empty**: Check PLEX_BASE_URL and PLEX_TOKEN
+- **Lidarr can't connect**: Verify port 8000 is accessible
 
-1. **No recommendations found**: Check LB_USER and METABRAINZ_TOKEN
-2. **Plex playlist not created**: Verify PLEX_BASE_URL and PLEX_TOKEN
-3. **Lidarr can't connect**: Check firewall and port configuration
-4. **MusicBrainz errors**: Verify MB_MIRROR setting
+### Manual Run
+```bash
+# Run once and exit (useful for testing)
+docker run --rm -e LB_USER=... -e METABRAINZ_TOKEN=... ghcr.io/devianteng/lb-lidarr-plex:latest python main.py --mode once
+```
+
+## Development
+
+```bash
+git clone <repo>
+cd lb-lidarr-plex
+pip install -r requirements.txt
+
+# Set environment variables
+export LB_USER=your_username
+export METABRAINZ_TOKEN=your_token
+
+# Run once
+python main.py --mode once
+
+# Run server
+python main.py --mode daemon
+```
 
 ## License
 
-MIT License - see LICENSE file for details.
+MIT License
