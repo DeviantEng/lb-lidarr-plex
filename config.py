@@ -25,10 +25,10 @@ def load_config():
         "PLEX_BASE_URL": os.getenv("PLEX_BASE_URL"),
         "PLEX_TOKEN": os.getenv("PLEX_TOKEN"),
         "HTTP_PORT": os.getenv("HTTP_PORT"),
-        "NULLONLY": os.getenv("NULLONLY"),
         "PLEX_DAYS_FILTER": os.getenv("PLEX_DAYS_FILTER"),
         "LIDARR_UPDATE_INTERVAL": os.getenv("LIDARR_UPDATE_INTERVAL"),
         "PLEX_UPDATE_INTERVAL": os.getenv("PLEX_UPDATE_INTERVAL"),
+        "PLEX_PLAYLIST_NAME": os.getenv("PLEX_PLAYLIST_NAME"),
         "LIDARR_UPDATE_INTERVAL": os.getenv("LIDARR_UPDATE_INTERVAL"),
         "PLEX_UPDATE_INTERVAL": os.getenv("PLEX_UPDATE_INTERVAL"),
     }
@@ -46,10 +46,10 @@ def load_config():
         "MB_MIRROR": "musicbrainz.org",
 	"LOCAL_MB_MIRROR": "FALSE",
         "HTTP_PORT": "8000",
-        "NULLONLY": "FALSE",
         "PLEX_DAYS_FILTER": "14",
         "LIDARR_UPDATE_INTERVAL": "86400",  # 24 hours in seconds
         "PLEX_UPDATE_INTERVAL": "86400",    # 24 hours in seconds
+        "PLEX_PLAYLIST_NAME": "ListenBrainz Weekly Discovery",
         "MB_MIRROR": "musicbrainz.org",     # Public MusicBrainz or your local mirror
         "LIDARR_UPDATE_INTERVAL": "86400",  # 24 hours in seconds
         "PLEX_UPDATE_INTERVAL": "86400",  # 24 hours in seconds
@@ -83,11 +83,11 @@ def save_config(config):
 
         f.write("# Plex Settings\n")
         f.write(f"PLEX_BASE_URL={config.get('PLEX_BASE_URL', '')}\n")
-        f.write(f"PLEX_TOKEN={config.get('PLEX_TOKEN', '')}\n\n")
+        f.write(f"PLEX_TOKEN={config.get('PLEX_TOKEN', '')}\n")
+        f.write(f"PLEX_PLAYLIST_NAME={config.get('PLEX_PLAYLIST_NAME', 'ListenBrainz Weekly Discovery')}\n\n")
 
         f.write("# Application Settings\n")
         f.write(f"HTTP_PORT={config.get('HTTP_PORT', '8000')}\n")
-        f.write(f"NULLONLY={config.get('NULLONLY', 'FALSE')}\n")
         f.write(f"PLEX_DAYS_FILTER={config.get('PLEX_DAYS_FILTER', '14')}\n")
         f.write(f"LIDARR_UPDATE_INTERVAL={config.get('LIDARR_UPDATE_INTERVAL', '86400')}\n")
         f.write(f"PLEX_UPDATE_INTERVAL={config.get('PLEX_UPDATE_INTERVAL', '86400')}\n")
@@ -106,8 +106,8 @@ MB_MIRROR = _config.get('MB_MIRROR', 'musicbrainz.org')
 LOCAL_MB_MIRROR = _config.get('LOCAL_MB_MIRROR', 'FALSE').strip().lower() == 'true'
 PLEX_BASE_URL = _config.get('PLEX_BASE_URL')
 PLEX_TOKEN = _config.get('PLEX_TOKEN')
+PLEX_PLAYLIST_NAME = _config.get('PLEX_PLAYLIST_NAME', 'ListenBrainz Weekly Discovery')
 HTTP_PORT = int(_config.get('HTTP_PORT', 8000))
-NULLONLY = _config.get('NULLONLY', 'FALSE').strip().lower() == 'true'
 PLEX_DAYS_FILTER = int(_config.get('PLEX_DAYS_FILTER', 14))
 LIDARR_UPDATE_INTERVAL = int(_config.get('LIDARR_UPDATE_INTERVAL', 86400))
 PLEX_UPDATE_INTERVAL = int(_config.get('PLEX_UPDATE_INTERVAL', 86400))
