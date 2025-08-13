@@ -18,6 +18,8 @@ artist_data = {}
 last_updated = None
 lidarr_last_updated = None
 plex_last_updated = None
+initial_processing_complete = False
+initial_processing_status = "Starting..."
 
 # Thread lock for safe data updates
 data_lock = threading.Lock()
@@ -26,25 +28,42 @@ class LibraryHandler(BaseHTTPRequestHandler):
     """HTTP handler for serving Lidarr custom import list"""
 
     def do_GET(self):
-        global artist_data, last_updated, lidarr_last_updated
+        global artist_data, last_updated, lidarr_last_updated, initial_processing_complete, initial_processing_status
 
         if self.path == '/':
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-
-            with data_lock:
+            if not initial_processing_complete:
+                # Return empty list during initial processing
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                
                 response = {
-                    "artists": list(artist_data.values()),
-                    "count": len(artist_data),
-                    "last_updated": last_updated.isoformat() if last_updated else None,
-                    "lidarr_last_updated": lidarr_last_updated.isoformat() if lidarr_last_updated else None,
+                    "artists": [],
+                    "count": 0,
+                    "status": "initial_processing",
+                    "message": initial_processing_status,
+                    "last_updated": None,
                     "source": "ListenBrainz Historical Recommendations"
                 }
+                self.wfile.write(json.dumps(response, indent=2).encode())
+            else:
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
 
-            self.wfile.write(json.dumps(response, indent=2).encode())
+                with data_lock:
+                    response = {
+                        "artists": list(artist_data.values()),
+                        "count": len(artist_data),
+                        "last_updated": last_updated.isoformat() if last_updated else None,
+                        "lidarr_last_updated": lidarr_last_updated.isoformat() if lidarr_last_updated else None,
+                        "source": "ListenBrainz Historical Recommendations"
+                    }
+
+                self.wfile.write(json.dumps(response, indent=2).encode())
 
         elif self.path == '/health':
+            # Always return healthy - the service IS running even if still processing
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
@@ -52,6 +71,8 @@ class LibraryHandler(BaseHTTPRequestHandler):
             with data_lock:
                 health = {
                     "status": "healthy",
+                    "initial_processing_complete": initial_processing_complete,
+                    "initial_processing_status": initial_processing_status,
                     "artists_count": len(artist_data),
                     "last_updated": last_updated.isoformat() if last_updated else None,
                     "lidarr_last_updated": lidarr_last_updated.isoformat() if lidarr_last_updated else None,
@@ -72,26 +93,31 @@ class LibraryHandler(BaseHTTPRequestHandler):
             self.wfile.write(b'Not Found')
 
     def log_message(self, format, *args):
-        # Custom logging format - use print with flush
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] HTTP: {format % args}", flush=True)
+        # Suppress routine HTTP logs to reduce noise
+        if '/health' not in format % args:  # Don't log health checks
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] HTTP: {format % args}", flush=True)
 
 def process_listenbrainz_data():
     """Process ListenBrainz recommendations and extract artist data"""
-    global artist_data, last_updated, lidarr_last_updated
+    global artist_data, last_updated, lidarr_last_updated, initial_processing_status
 
     if not USER:
         print("❌ Error: LB_USER not configured", flush=True)
+        initial_processing_status = "Error: LB_USER not configured"
         return False
 
     try:
         print(f"🔥 Fetching ALL recommendations for user: {USER}", flush=True)
+        initial_processing_status = f"Fetching recommendations for {USER}..."
         recommendations = get_all_recommendations(USER)
 
         if not recommendations:
             print("❌ No recommendations found", flush=True)
+            initial_processing_status = "Error: No recommendations found"
             return False
 
         print(f"📋 Found {len(recommendations)} total recommendations for Lidarr", flush=True)
+        initial_processing_status = f"Processing {len(recommendations)} recommendations..."
 
         # Extract all recording MBIDs for batch processing
         recording_mbids = []
@@ -101,6 +127,7 @@ def process_listenbrainz_data():
                 recording_mbids.append(recording_mbid)
 
         print(f"🔍 Processing {len(recording_mbids)} recording MBIDs for artist data...", flush=True)
+        initial_processing_status = f"Looking up {len(recording_mbids)} tracks from MusicBrainz..."
 
         # Use batch processing for efficiency
         batch_results = get_artist_info_smart(recording_mbids)
@@ -119,6 +146,7 @@ def process_listenbrainz_data():
 
                 if processed % 25 == 0:
                     print(f"  Processed {processed} unique artists...", flush=True)
+                    initial_processing_status = f"Processed {processed} unique artists..."
 
         # Thread-safe update of global data
         with data_lock:
@@ -129,22 +157,24 @@ def process_listenbrainz_data():
 
         # Save data to file for backup/debugging
         lidarr_list = list(seen_artists.values())
-        with open("lidarr_custom_list.json", "w", encoding="utf-8") as f:
+        with open("/app/data/lidarr_custom_list.json", "w", encoding="utf-8") as f:
             json.dump(lidarr_list, f, indent=2)
 
         print(f"✅ Processed {len(seen_artists)} unique artists for Lidarr from {len(recommendations)} total recommendations", flush=True)
         print(f"💾 Updated JSON file and HTTP server data", flush=True)
+        initial_processing_status = f"Complete: {len(seen_artists)} artists ready"
         return True
 
     except Exception as e:
         print(f"❌ Error processing ListenBrainz data: {e}", flush=True)
+        initial_processing_status = f"Error: {str(e)}"
         import traceback
         traceback.print_exc()
         return False
 
 def create_plex_playlists():
     """Create Plex playlists from ListenBrainz recommendations"""
-    global plex_last_updated
+    global plex_last_updated, initial_processing_status
 
     if not PLEX_BASE_URL or not PLEX_TOKEN:
         print("⚠️  Plex not configured - skipping playlist creation", flush=True)
@@ -155,6 +185,7 @@ def create_plex_playlists():
         from listenbrainz_to_plex import create_all_playlists
         
         print("🎵 Creating playlists from ListenBrainz recommendations...", flush=True)
+        initial_processing_status = "Creating Plex playlists..."
         success = create_all_playlists(USER)
 
         if success:
@@ -172,12 +203,52 @@ def create_plex_playlists():
         traceback.print_exc()
         return False
 
+def initial_processing_task():
+    """Run initial processing in background"""
+    global initial_processing_complete, initial_processing_status
+    
+    try:
+        print("🔍 Starting initial data processing in background...", flush=True)
+        
+        # Process Lidarr data
+        print("📊 Processing Lidarr data...", flush=True)
+        initial_processing_status = "Processing Lidarr data..."
+        success = process_listenbrainz_data()
+        
+        if not success:
+            print("⚠️  Initial Lidarr processing had issues but continuing...", flush=True)
+        
+        # Process Plex playlists
+        if PLEX_BASE_URL and PLEX_TOKEN:
+            print("🎵 Creating initial Plex playlists...", flush=True)
+            initial_processing_status = "Creating Plex playlists..."
+            create_plex_playlists()
+        
+        initial_processing_complete = True
+        initial_processing_status = "Ready"
+        print("✅ Initial processing complete!", flush=True)
+        
+    except Exception as e:
+        print(f"❌ Error in initial processing: {e}", flush=True)
+        initial_processing_status = f"Error: {str(e)}"
+        import traceback
+        traceback.print_exc()
+        # Mark as complete even on error so scheduled tasks can retry
+        initial_processing_complete = True
+
 def lidarr_update_task(update_interval):
     """Background task for updating Lidarr data"""
     def run():
+        # Wait for initial processing to complete
+        while not initial_processing_complete:
+            time.sleep(5)
+        
+        # Wait for the first interval before running again
+        time.sleep(update_interval)
+        
         while True:
             try:
-                print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🔍 Starting Lidarr data update...", flush=True)
+                print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🔍 Starting scheduled Lidarr data update...", flush=True)
                 process_listenbrainz_data()
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⏰ Next Lidarr update in {update_interval} seconds", flush=True)
             except Exception as e:
@@ -194,9 +265,16 @@ def lidarr_update_task(update_interval):
 def plex_update_task(update_interval):
     """Background task for updating Plex playlists"""
     def run():
+        # Wait for initial processing to complete
+        while not initial_processing_complete:
+            time.sleep(5)
+        
+        # Wait for the first interval before running again
+        time.sleep(update_interval)
+        
         while True:
             try:
-                print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🎵 Starting Plex playlists update...", flush=True)
+                print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🎵 Starting scheduled Plex playlists update...", flush=True)
                 create_plex_playlists()
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⏰ Next Plex update in {update_interval} seconds", flush=True)
             except Exception as e:
@@ -240,7 +318,7 @@ def run_once():
     with data_lock:
         lidarr_list = list(artist_data.values())
 
-    with open("lidarr_custom_list.json", "w", encoding="utf-8") as f:
+    with open("/app/data/lidarr_custom_list.json", "w", encoding="utf-8") as f:
         json.dump(lidarr_list, f, indent=2)
 
     print(f"💾 Saved {len(lidarr_list)} artists to lidarr_custom_list.json", flush=True)
@@ -250,6 +328,8 @@ def run_once():
 
 def run_daemon_mode(lidarr_interval=None, plex_interval=None):
     """Run in daemon mode with scheduled updates and HTTP server"""
+    global initial_processing_status
+    
     # Use provided intervals or defaults
     lidarr_update_interval = lidarr_interval or LIDARR_UPDATE_INTERVAL
     plex_update_interval = plex_interval or PLEX_UPDATE_INTERVAL
@@ -260,25 +340,35 @@ def run_daemon_mode(lidarr_interval=None, plex_interval=None):
     print(f"🎯 Plex mode: Auto-create Daily Jams, Weekly Jams, and Weekly Exploration playlists", flush=True)
     print("", flush=True)
 
-    # Run initial data processing for Lidarr
-    print("🔍 Running initial Lidarr data processing...", flush=True)
-    process_listenbrainz_data()
-
-    # Run initial Plex playlist creation
-    if PLEX_BASE_URL and PLEX_TOKEN:
-        print("🎵 Running initial Plex playlist creation...", flush=True)
-        create_plex_playlists()
-
-    # Start scheduled tasks
-    print("⏰ Starting background update tasks...", flush=True)
+    # Start HTTP server immediately in a separate thread
+    print("🌐 Starting HTTP server immediately...", flush=True)
+    http_thread = threading.Thread(target=run_http_server, daemon=True, name="HTTPServer")
+    http_thread.start()
+    
+    # Give the HTTP server a moment to start
+    time.sleep(2)
+    
+    # Start initial processing in background
+    initial_thread = threading.Thread(target=initial_processing_task, daemon=True, name="InitialProcessing")
+    initial_thread.start()
+    
+    # Start scheduled update tasks (they'll wait for initial processing to complete)
+    print("⏰ Starting scheduled update tasks...", flush=True)
     lidarr_thread = lidarr_update_task(lidarr_update_interval)
     plex_thread = plex_update_task(plex_update_interval)
 
-    print("✅ Background tasks started", flush=True)
+    print("✅ All services started", flush=True)
+    print("📝 Initial processing is running in the background...", flush=True)
     print("", flush=True)
 
-    # Start HTTP server (blocks until stopped)
-    run_http_server()
+    # Keep the main thread alive
+    try:
+        while True:
+            time.sleep(60)
+            # Optional: Add periodic status check here
+    except KeyboardInterrupt:
+        print("\n🛑 Shutting down...", flush=True)
+        sys.exit(0)
 
 def main():
     # Global config override from command line
