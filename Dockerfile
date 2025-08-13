@@ -34,5 +34,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:${HTTP_PORT:-8000}/health || exit 1
 
-# Default command (server mode)
-CMD ["python", "main.py", "--mode", "server"]
+# Default command (daemon mode - updated from "server")
+CMD ["python", "main.py", "--mode", "daemon"]
