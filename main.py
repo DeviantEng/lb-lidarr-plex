@@ -8,9 +8,9 @@ import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
 
-from config import (USER, NULLONLY, HTTP_PORT, PLEX_BASE_URL, PLEX_TOKEN,
-                   PLEX_DAYS_FILTER, LIDARR_UPDATE_INTERVAL, PLEX_UPDATE_INTERVAL)
-from listenbrainz_api import get_all_recommendations, get_recent_recommendations
+from config import (USER, HTTP_PORT, PLEX_BASE_URL, PLEX_TOKEN,
+                   PLEX_DAYS_FILTER, PLEX_PLAYLIST_NAME, LIDARR_UPDATE_INTERVAL, PLEX_UPDATE_INTERVAL)
+from listenbrainz_playlist_api import get_all_recommendations, get_weekly_exploration_tracks
 from musicbrainz_api import get_artist_info_smart
 
 # Global variables to store processed data
@@ -58,7 +58,6 @@ class LibraryHandler(BaseHTTPRequestHandler):
                     "plex_last_updated": plex_last_updated.isoformat() if plex_last_updated else None,
                     "config": {
                         "user": USER,
-                        "null_only": NULLONLY,
                         "plex_configured": bool(PLEX_BASE_URL and PLEX_TOKEN),
                         "lidarr_update_interval": LIDARR_UPDATE_INTERVAL,
                         "plex_update_interval": PLEX_UPDATE_INTERVAL,
@@ -87,7 +86,7 @@ def process_listenbrainz_data():
 
     try:
         print(f"📥 Fetching ALL recommendations for user: {USER}")
-        recommendations = get_all_recommendations(USER, null_only=NULLONLY)
+        recommendations = get_all_recommendations(USER)
 
         if not recommendations:
             print("❌ No recommendations found")
@@ -143,33 +142,36 @@ def process_listenbrainz_data():
         return False
 
 def create_plex_playlist():
-    """Create Plex playlist from the processed recommendations"""
+    """Create Plex playlist from the Weekly Exploration playlist"""
+    global plex_last_updated
+
     if not PLEX_BASE_URL or not PLEX_TOKEN:
         print("⚠️  Plex not configured - skipping playlist creation")
         return True
 
     try:
         # Import the working Plex functionality
-        from working_listenbrainz_to_plex import create_playlist_from_recommendations_working
+        from listenbrainz_to_plex import create_playlist_from_recommendations
 
-        print("🎵 Creating Plex playlist from recent recommendations...")
+        print("🎵 Creating Plex playlist from Weekly Exploration playlist...")
 
-        # Use current date for playlist name
-        playlist_name = f"ListenBrainz Weekly - {datetime.now().strftime('%Y-%m-%d')}"
+        # Use configurable playlist name (no timestamp)
+        playlist_name = PLEX_PLAYLIST_NAME
 
-        success = create_playlist_from_recommendations_working(
+        success = create_playlist_from_recommendations(
             plex_url=PLEX_BASE_URL,
             plex_token=PLEX_TOKEN,
             listenbrainz_user=USER,
             playlist_name=playlist_name,
-            null_only=NULLONLY,
             max_tracks=50,  # Reasonable limit for weekly playlist
             append_to_existing=False,
-            days_filter=PLEX_DAYS_FILTER  # Use configured days filter
+            days_filter=PLEX_DAYS_FILTER  # This parameter is now ignored in the new implementation
         )
 
         if success:
             print(f"✅ Successfully created Plex playlist: {playlist_name}")
+            with data_lock:
+                plex_last_updated = datetime.now()
         else:
             print("❌ Failed to create Plex playlist")
 
@@ -230,11 +232,11 @@ def run_once():
     """Run the processing once and exit"""
     print("🔄 Running ListenBrainz processing (one-time mode)")
 
-    # Process ListenBrainz data
+    # Process ListenBrainz data for Lidarr
     if not process_listenbrainz_data():
         return False
 
-    # Create Plex playlist
+    # Create Plex playlist from Weekly Exploration
     create_plex_playlist()
 
     # Save data to file for Lidarr
@@ -258,7 +260,7 @@ def run_daemon_mode(lidarr_interval=None, plex_interval=None):
     print("🚀 Starting daemon mode")
     print(f"📊 Lidarr update interval: {lidarr_update_interval} seconds ({lidarr_update_interval/3600:.1f} hours)")
     print(f"🎵 Plex update interval: {plex_update_interval} seconds ({plex_update_interval/3600:.1f} hours)")
-    print(f"📅 Plex playlist days filter: {PLEX_DAYS_FILTER} days")
+    print(f"📅 Plex source: Weekly Exploration playlist")
     print()
 
     # Run initial data processing
@@ -277,6 +279,7 @@ def run_daemon_mode(lidarr_interval=None, plex_interval=None):
     run_http_server()
 
 def main():
+    # MOVED GLOBAL DECLARATION TO THE TOP OF THE FUNCTION
     global LIDARR_UPDATE_INTERVAL, PLEX_UPDATE_INTERVAL
 
     parser = argparse.ArgumentParser(description="ListenBrainz to Lidarr and Plex integration")
@@ -301,10 +304,10 @@ def main():
 
     print(f"🎵 ListenBrainz to Lidarr and Plex Integration")
     print(f"👤 User: {USER}")
-    print(f"🎯 Null only: {NULLONLY}")
     print(f"🔗 Plex configured: {'Yes' if PLEX_BASE_URL and PLEX_TOKEN else 'No'}")
     print(f"🌐 HTTP port: {HTTP_PORT}")
-    print(f"📅 Plex days filter: {PLEX_DAYS_FILTER} days")
+    print(f"📊 Lidarr source: Collaborative filtering recommendations")
+    print(f"🎵 Plex source: Weekly Exploration playlist")
     print()
 
     if args.mode == "once":
