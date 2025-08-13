@@ -9,7 +9,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
 
 from config import (USER, HTTP_PORT, PLEX_BASE_URL, PLEX_TOKEN,
-                   PLEX_DAYS_FILTER, PLEX_PLAYLIST_NAME, LIDARR_UPDATE_INTERVAL, PLEX_UPDATE_INTERVAL)
+                   LIDARR_UPDATE_INTERVAL, PLEX_UPDATE_INTERVAL)
 from listenbrainz_playlist_api import get_all_recommendations, get_weekly_exploration_tracks
 from musicbrainz_api import get_artist_info_smart
 
@@ -61,7 +61,6 @@ class LibraryHandler(BaseHTTPRequestHandler):
                         "plex_configured": bool(PLEX_BASE_URL and PLEX_TOKEN),
                         "lidarr_update_interval": LIDARR_UPDATE_INTERVAL,
                         "plex_update_interval": PLEX_UPDATE_INTERVAL,
-                        "plex_days_filter": PLEX_DAYS_FILTER
                     }
                 }
 
@@ -85,7 +84,7 @@ def process_listenbrainz_data():
         return False
 
     try:
-        print(f"📥 Fetching ALL recommendations for user: {USER}")
+        print(f"🔥 Fetching ALL recommendations for user: {USER}")
         recommendations = get_all_recommendations(USER)
 
         if not recommendations:
@@ -101,7 +100,7 @@ def process_listenbrainz_data():
             if recording_mbid:
                 recording_mbids.append(recording_mbid)
 
-        print(f"🔄 Processing {len(recording_mbids)} recording MBIDs for artist data...")
+        print(f"📝 Processing {len(recording_mbids)} recording MBIDs for artist data...")
 
         # Use batch processing for efficiency
         batch_results = get_artist_info_smart(recording_mbids)
@@ -141,8 +140,8 @@ def process_listenbrainz_data():
         print(f"❌ Error processing ListenBrainz data: {e}")
         return False
 
-def create_plex_playlist():
-    """Create Plex playlist from the Weekly Exploration playlist"""
+def create_plex_playlists():
+    """Create Plex playlists from ListenBrainz recommendations"""
     global plex_last_updated
 
     if not PLEX_BASE_URL or not PLEX_TOKEN:
@@ -150,35 +149,23 @@ def create_plex_playlist():
         return True
 
     try:
-        # Import the working Plex functionality
-        from listenbrainz_to_plex import create_playlist_from_recommendations
-
-        print("🎵 Creating Plex playlist from Weekly Exploration playlist...")
-
-        # Use configurable playlist name (no timestamp)
-        playlist_name = PLEX_PLAYLIST_NAME
-
-        success = create_playlist_from_recommendations(
-            plex_url=PLEX_BASE_URL,
-            plex_token=PLEX_TOKEN,
-            listenbrainz_user=USER,
-            playlist_name=playlist_name,
-            max_tracks=50,  # Reasonable limit for weekly playlist
-            append_to_existing=False,
-            days_filter=PLEX_DAYS_FILTER  # This parameter is now ignored in the new implementation
-        )
+        # Import the multi-playlist functionality
+        from listenbrainz_to_plex import create_all_playlists
+        
+        print("🎵 Creating playlists from ListenBrainz recommendations...")
+        success = create_all_playlists(USER)
 
         if success:
-            print(f"✅ Successfully created Plex playlist: {playlist_name}")
+            print(f"✅ Successfully created Plex playlists")
             with data_lock:
                 plex_last_updated = datetime.now()
         else:
-            print("❌ Failed to create Plex playlist")
+            print("❌ Failed to create Plex playlists")
 
         return success
 
     except Exception as e:
-        print(f"❌ Error creating Plex playlist: {e}")
+        print(f"❌ Error creating Plex playlists: {e}")
         return False
 
 def lidarr_update_task(update_interval):
@@ -186,7 +173,7 @@ def lidarr_update_task(update_interval):
     def run():
         while True:
             try:
-                print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🔄 Starting Lidarr data update...")
+                print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 📝 Starting Lidarr data update...")
                 process_listenbrainz_data()
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⏰ Next Lidarr update in {update_interval} seconds")
             except Exception as e:
@@ -203,8 +190,8 @@ def plex_update_task(update_interval):
     def run():
         while True:
             try:
-                print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🎵 Starting Plex playlist update...")
-                create_plex_playlist()
+                print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🎵 Starting Plex playlists update...")
+                create_plex_playlists()
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⏰ Next Plex update in {update_interval} seconds")
             except Exception as e:
                 print(f"❌ Error in Plex update task: {e}")
@@ -230,14 +217,14 @@ def run_http_server():
 
 def run_once():
     """Run the processing once and exit"""
-    print("🔄 Running ListenBrainz processing (one-time mode)")
+    print("📝 Running ListenBrainz processing (one-time mode)")
 
     # Process ListenBrainz data for Lidarr
     if not process_listenbrainz_data():
         return False
 
-    # Create Plex playlist from Weekly Exploration
-    create_plex_playlist()
+    # Create Plex playlists from recommendations
+    create_plex_playlists()
 
     # Save data to file for Lidarr
     with data_lock:
@@ -260,11 +247,11 @@ def run_daemon_mode(lidarr_interval=None, plex_interval=None):
     print("🚀 Starting daemon mode")
     print(f"📊 Lidarr update interval: {lidarr_update_interval} seconds ({lidarr_update_interval/3600:.1f} hours)")
     print(f"🎵 Plex update interval: {plex_update_interval} seconds ({plex_update_interval/3600:.1f} hours)")
-    print(f"📅 Plex source: Weekly Exploration playlist")
+    print(f"🎯 Plex mode: Auto-create Daily Jams, Weekly Jams, and Weekly Exploration playlists")
     print()
 
     # Run initial data processing
-    print("🔄 Running initial data processing...")
+    print("📝 Running initial data processing...")
     process_listenbrainz_data()
 
     # Start scheduled tasks
@@ -299,7 +286,7 @@ def main():
     # Validate configuration
     if not USER:
         print("❌ Error: LB_USER is required")
-        print("Set LB_USER environment variable or add to /config/config.env")
+        print("Set LB_USER environment variable or add to config.env")
         sys.exit(1)
 
     print(f"🎵 ListenBrainz to Lidarr and Plex Integration")
@@ -307,7 +294,7 @@ def main():
     print(f"🔗 Plex configured: {'Yes' if PLEX_BASE_URL and PLEX_TOKEN else 'No'}")
     print(f"🌐 HTTP port: {HTTP_PORT}")
     print(f"📊 Lidarr source: Collaborative filtering recommendations")
-    print(f"🎵 Plex source: Weekly Exploration playlist")
+    print(f"🎵 Plex mode: Auto-create available playlists (Daily Jams, Weekly Jams, Weekly Exploration)")
     print()
 
     if args.mode == "once":

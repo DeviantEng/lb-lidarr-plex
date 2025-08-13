@@ -333,7 +333,7 @@ class PlexClient:
 
         return (overlap / total) >= threshold
 
-    # PLAYLIST METHODS - FIXED FOR XML API AND CORRECT CREATION METHOD
+    # PLAYLIST METHODS - Core functionality for playlist management
 
     def find_playlist_by_name(self, playlist_name):
         """Find a playlist by name. Returns playlist metadata if found, None otherwise."""
@@ -354,7 +354,7 @@ class PlexClient:
     def create_playlist(self, title, track_rating_keys, summary=""):
         """
         Create a new playlist with the given tracks.
-        FIXED: Uses hybrid approach - create with 1 track, then add the rest.
+        Uses hybrid approach - create with 1 track, then add the rest.
 
         Args:
             title: Playlist title
@@ -385,7 +385,7 @@ class PlexClient:
                 "uri": uri
             }
 
-            print(f"📝 Creating playlist with first track...")
+            print(f"🔨 Creating playlist with first track...")
             headers = {"Accept": "application/json"}
             response = requests.post(f"{base_url}/playlists", params=params, headers=headers)
             response.raise_for_status()
@@ -395,10 +395,9 @@ class PlexClient:
             # Step 2: Add remaining tracks if there are any
             if len(track_rating_keys) > 1:
                 remaining_tracks = track_rating_keys[1:]
-                print(f"🔄 Adding {len(remaining_tracks)} remaining tracks...")
+                print(f"📝 Adding {len(remaining_tracks)} remaining tracks...")
 
                 # Find the created playlist to get its ratingKey
-                import time
                 time.sleep(2)  # Give Plex time to create the playlist
 
                 created_playlist = self.find_playlist_by_name(title)
@@ -423,60 +422,10 @@ class PlexClient:
             print(f"❌ Error creating playlist '{title}': {e}")
             return False
 
-    def _create_playlist_two_step(self, title, track_rating_keys, summary=""):
-        """Create playlist using two-step process: create empty, then add tracks"""
-
-        # Step 1: Create empty playlist using PUT method (which some Plex versions prefer)
-        try:
-            url = f"{self.base_url}/playlists"
-            params = {
-                "X-Plex-Token": self.token,
-                "title": title,
-                "type": "audio"
-            }
-
-            if summary:
-                clean_summary = summary.replace(":", " ").replace("%", "percent").replace("&", "and")
-                params["summary"] = clean_summary
-
-            # Try PUT first (some Plex versions prefer this for creation)
-            headers = {"Accept": "application/json"}
-            response = requests.put(url, params=params, headers=headers)
-            response.raise_for_status()
-
-            # Parse response to get playlist ratingKey
-            result = self._parse_xml_response(response.text) if 'xml' in response.headers.get('content-type', '') else response.json()
-            media_container = result.get("MediaContainer", {})
-            metadata = media_container.get("Metadata", [])
-
-            if not metadata:
-                raise Exception("No playlist metadata in creation response")
-
-            playlist_rating_key = metadata[0].get("ratingKey")
-            if not playlist_rating_key:
-                raise Exception("No ratingKey in playlist creation response")
-
-            print(f"✅ Empty playlist created with ratingKey: {playlist_rating_key}")
-
-            # Step 2: Add tracks to the empty playlist
-            print(f"🔄 Adding {len(track_rating_keys)} tracks to playlist...")
-            success = self.add_tracks_to_playlist(playlist_rating_key, track_rating_keys)
-
-            if success:
-                print(f"✅ Successfully created playlist '{title}' with {len(track_rating_keys)} tracks")
-                return True
-            else:
-                print(f"❌ Playlist created but failed to add tracks")
-                return False
-
-        except Exception as e:
-            print(f"❌ Two-step creation failed: {e}")
-            return False
-
     def add_tracks_to_playlist(self, playlist_rating_key, track_rating_keys):
         """
         Add tracks to an existing playlist.
-        FIXED: This Plex server requires adding tracks ONE AT A TIME.
+        This Plex server requires adding tracks ONE AT A TIME.
 
         Args:
             playlist_rating_key: The ratingKey of the playlist
@@ -490,7 +439,7 @@ class PlexClient:
                 print("No tracks provided to add to playlist")
                 return False
 
-            print(f"🔄 Adding {len(track_rating_keys)} tracks one by one...")
+            print(f"📝 Adding {len(track_rating_keys)} tracks one by one...")
 
             base_url = self.base_url
             token = self.token
@@ -517,7 +466,6 @@ class PlexClient:
                         print(f"  ✅ Added {i}/{len(track_rating_keys)} tracks")
 
                     # Small delay to avoid overwhelming the server
-                    import time
                     time.sleep(0.2)
 
                 except Exception as track_error:
@@ -570,7 +518,7 @@ class PlexClient:
             existing_playlist = self.find_playlist_by_name(title)
 
             if existing_playlist:
-                print(f"🔄 Found existing playlist '{title}', deleting it first")
+                print(f"📝 Found existing playlist '{title}', deleting it first")
                 if not self.delete_playlist(existing_playlist["ratingKey"]):
                     print(f"❌ Failed to delete existing playlist")
                     return False

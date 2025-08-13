@@ -45,7 +45,7 @@ ehthumbs.db
 Thumbs.db
 
 # Application specific
-config/config.env
+config.env
 *.json
 *.log
 

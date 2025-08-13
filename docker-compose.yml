@@ -8,25 +8,30 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./config:/config
+      - ./data:/app/data  # Single mount for config and logs
     environment:
       # ListenBrainz Configuration
       - LB_USER=your_listenbrainz_username
       - METABRAINZ_TOKEN=your_metabrainz_token
       
       # MusicBrainz Configuration  
-      - MB_MIRROR=musicbrainz.org  # or your local mirror like 192.168.1.200:5000
+      - MB_MIRROR=musicbrainz.org  # Default: musicbrainz.org, or set to host:port for local mirror (e.g., 192.168.1.205:5000)
       
       # Plex Configuration
       - PLEX_BASE_URL=http://your-plex-server:32400
       - PLEX_TOKEN=your_plex_token
+      # Playlist names (customize as needed)
+      - PLEX_DAILY_JAMS_NAME=ListenBrainz Daily Jams
+      - PLEX_WEEKLY_JAMS_NAME=ListenBrainz Weekly Jams
+      - PLEX_WEEKLY_EXPLORATION_NAME=ListenBrainz Weekly Discovery
       
       # Application Configuration
       - HTTP_PORT=8000
-      - NULLONLY=FALSE  # Set to TRUE to only include unlistened tracks
-      - PLEX_DAYS_FILTER=14  # Days to look back for Plex playlists
       - LIDARR_UPDATE_INTERVAL=86400  # Lidarr update interval in seconds (24 hours)
       - PLEX_UPDATE_INTERVAL=86400    # Plex update interval in seconds (24 hours)
+      
+      # Logging Configuration (disabled by default)
+      - ENABLE_LOGGING=FALSE  # Set to TRUE to enable file logging
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
