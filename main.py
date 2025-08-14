@@ -32,35 +32,42 @@ class LibraryHandler(BaseHTTPRequestHandler):
 
         if self.path == '/':
             if not initial_processing_complete:
-                # Return empty list during initial processing
+                # Return empty array during initial processing (Lidarr expects array)
                 self.send_response(200)
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
                 
-                response = {
-                    "artists": [],
-                    "count": 0,
-                    "status": "initial_processing",
-                    "message": initial_processing_status,
-                    "last_updated": None,
-                    "source": "ListenBrainz Historical Recommendations"
-                }
-                self.wfile.write(json.dumps(response, indent=2).encode())
+                # Return empty array for Lidarr compatibility
+                self.wfile.write(json.dumps([]).encode())
             else:
                 self.send_response(200)
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
 
                 with data_lock:
-                    response = {
-                        "artists": list(artist_data.values()),
-                        "count": len(artist_data),
-                        "last_updated": last_updated.isoformat() if last_updated else None,
-                        "lidarr_last_updated": lidarr_last_updated.isoformat() if lidarr_last_updated else None,
-                        "source": "ListenBrainz Historical Recommendations"
-                    }
+                    # Return just the array of artists for Lidarr
+                    artist_list = list(artist_data.values())
 
-                self.wfile.write(json.dumps(response, indent=2).encode())
+                self.wfile.write(json.dumps(artist_list, indent=2).encode())
+
+        elif self.path == '/status':
+            # Separate endpoint for status information
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+
+            with data_lock:
+                status = {
+                    "artists_count": len(artist_data),
+                    "last_updated": last_updated.isoformat() if last_updated else None,
+                    "lidarr_last_updated": lidarr_last_updated.isoformat() if lidarr_last_updated else None,
+                    "plex_last_updated": plex_last_updated.isoformat() if plex_last_updated else None,
+                    "initial_processing_complete": initial_processing_complete,
+                    "initial_processing_status": initial_processing_status,
+                    "source": "ListenBrainz Historical Recommendations"
+                }
+
+            self.wfile.write(json.dumps(status, indent=2).encode())
 
         elif self.path == '/health':
             # Always return healthy - the service IS running even if still processing
@@ -138,9 +145,10 @@ def process_listenbrainz_data():
 
         for recording_mbid, (artist_mbid, artist_name, track_title) in batch_results.items():
             if artist_mbid and artist_mbid not in seen_artists:
+                # Use the correct field names for Lidarr
                 seen_artists[artist_mbid] = {
                     "MusicBrainzId": artist_mbid,
-                    "title": artist_name
+                    "ArtistName": artist_name  # Changed from "title" to "ArtistName"
                 }
                 processed += 1
 
@@ -294,6 +302,7 @@ def run_http_server():
         server = HTTPServer(('0.0.0.0', HTTP_PORT), LibraryHandler)
         print(f"🌐 HTTP server started on port {HTTP_PORT}", flush=True)
         print(f"📡 Lidarr custom list URL: http://localhost:{HTTP_PORT}/", flush=True)
+        print(f"📊 Status information URL: http://localhost:{HTTP_PORT}/status", flush=True)
         print(f"🏥 Health check URL: http://localhost:{HTTP_PORT}/health", flush=True)
         server.serve_forever()
     except KeyboardInterrupt:
