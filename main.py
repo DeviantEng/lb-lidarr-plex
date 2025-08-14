@@ -31,24 +31,15 @@ class LibraryHandler(BaseHTTPRequestHandler):
         global artist_data, last_updated, lidarr_last_updated, initial_processing_complete, initial_processing_status
 
         if self.path == '/':
-            if not initial_processing_complete:
-                # Return empty array during initial processing (Lidarr expects array)
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                
-                # Return empty array for Lidarr compatibility
-                self.wfile.write(json.dumps([]).encode())
-            else:
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
 
-                with data_lock:
-                    # Return just the array of artists for Lidarr
-                    artist_list = list(artist_data.values())
+            with data_lock:
+                # Return the array of artists for Lidarr (empty if not ready yet)
+                artist_list = list(artist_data.values())
 
-                self.wfile.write(json.dumps(artist_list, indent=2).encode())
+            self.wfile.write(json.dumps(artist_list, indent=2).encode())
 
         elif self.path == '/status':
             # Separate endpoint for status information
