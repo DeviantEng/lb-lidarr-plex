@@ -7,11 +7,41 @@ Automatically sync your ListenBrainz recommendations to create:
 ## Features
 
 - 🎵 **Multiple Plex Playlists**: Automatically creates and updates Daily Jams, Weekly Jams, and Weekly Exploration playlists
-- 📚 **Lidarr Integration**: Provides a custom import list of ~150-200 recommended artists
+- 📚 **Lidarr Integration**: Provides a custom import list of artists from your ListenBrainz Weekly Exploration playlist
 - 🔄 **Automatic Updates**: Configurable refresh intervals for both Lidarr and Plex
-- 🌐 **HTTP API**: Built-in web server for Lidarr integration
+- 🌐 **HTTP API**: Built-in web server to host json list for Lidarr integration
 - 📊 **Status Monitoring**: Health check and status endpoints
 - 🐳 **Docker Ready**: Runs in a container with minimal configuration
+
+## Requirements
+
+### Essential
+- **ListenBrainz account** with active scrobbling
+  - You must be actively submitting listens to ListenBrainz
+  - ListenBrainz needs listening history to generate personalized playlists
+  - See [ListenBrainz tools](https://listenbrainz.org/add-data/) for scrobbling options (Plex, Spotify, music players, etc.)
+- **MetaBrainz API token** for authentication
+  - Get from [ListenBrainz Settings](https://listenbrainz.org/settings/) → API Tokens
+
+### Runtime
+- **Docker** (recommended) or Python 3.11+
+
+### Optional Services
+- **Plex Media Server** - Required only for playlist creation features
+- **Lidarr** - Required only for artist import list features
+- **Local MusicBrainz Mirror** - Dramatically improves performance
+  - Removes API rate limiting (1 request/second on public API)
+  - See [Self-Hosted MusicBrainz Mirror Setup Guide](https://github.com/blampe/hearring-aid/blob/main/docs/self-hosted-mirror-setup.md)
+
+### ListenBrainz Playlist Requirements
+For the playlists to be available:
+- Must scrobble listens from Plex or some other source
+  - [eavesdrop.fm](https://eavesdrop.fm/) can easily generate a webhook URL to be configured in Plex
+- **Daily Jams**: Must enable list by creation following the troi-bot user; [GUIDE HERE](https://community.metabrainz.org/t/would-you-like-to-test-drive-our-first-recommendations-feature/626352)
+- **Weekly Jams**: Requires at least a week of listening history
+- **Weekly Exploration**: Requires sufficient listening history for recommendations (typically 2+ weeks)
+
+Without sufficient listening data, ListenBrainz won't generate these playlists and the Plex playlist creation will skip them.
 
 ## Quick Start
 
@@ -47,7 +77,7 @@ services:
       
       # Optional - Advanced Settings
       - MB_MIRROR=musicbrainz.org  # Or local mirror like 192.168.1.10:5000
-      - HTTP_PORT=8000
+      - HTTP_PORT=8000   # python web server port
       - LIDARR_UPDATE_INTERVAL=86400  # 24 hours in seconds
       - PLEX_UPDATE_INTERVAL=86400    # 24 hours in seconds
       - ENABLE_LOGGING=FALSE          # Set to TRUE for file logging
@@ -79,7 +109,7 @@ docker run -d \
 | Variable | Description | How to Get |
 |----------|-------------|------------|
 | `LB_USER` | Your ListenBrainz username | Your profile URL: `listenbrainz.org/user/[username]` |
-| `METABRAINZ_TOKEN` | API authentication token | [ListenBrainz Settings](https://listenbrainz.org/settings/) → API Tokens |
+| `METABRAINZ_TOKEN` | API authentication token | [ListenBrainz Settings](https://listenbrainz.org/settings/) → User Token |
 
 ### Optional Settings
 
@@ -92,7 +122,7 @@ docker run -d \
 | `PLEX_WEEKLY_JAMS_NAME` | `ListenBrainz Weekly Jams` | Name for Weekly Jams playlist |
 | `PLEX_WEEKLY_EXPLORATION_NAME` | `ListenBrainz Weekly Discovery` | Name for Weekly Exploration playlist |
 | **Application Settings** | | |
-| `MB_MIRROR` | `musicbrainz.org` | MusicBrainz server (use local mirror for faster processing) |
+| `MB_MIRROR` | `musicbrainz.org` | MusicBrainz server for artist lookup (use local mirror for faster processing; `192.168.1.10:5000`) |
 | `HTTP_PORT` | `8000` | Port for HTTP API server |
 | `LIDARR_UPDATE_INTERVAL` | `86400` | How often to refresh Lidarr data (seconds) |
 | `PLEX_UPDATE_INTERVAL` | `86400` | How often to update Plex playlists (seconds) |
@@ -105,15 +135,14 @@ docker run -d \
 1. Go to **Settings → Import Lists → Add List → Custom List**
 2. Configure:
    - **Name**: `ListenBrainz Recommendations` (or your preference)
-   - **URL**: `http://your-docker-host:8000/`
-   - **Method**: GET
+   - **List URL**: `http://your-docker-host:8000/`
 3. Set your preferences:
    - **Monitor**: Artist and All Albums (or your preference)
    - **Quality Profile**: Your preferred quality
    - **Tags**: Optional tags for organization
 4. Test and Save
 
-The list will import ~150-200 unique artists based on your ListenBrainz listening history and recommendations.
+The list will import unique artists based on your ListenBrainz listening history and recommendations.
 
 ### Plex Playlists
 
@@ -130,6 +159,32 @@ Playlists are created automatically when Plex is configured. The app will:
 | `GET /` | Lidarr import list | JSON array of artists with MusicBrainzId |
 | `GET /status` | Detailed status information | JSON object with counts, timestamps, and processing status |
 | `GET /health` | Health check | JSON object with service status |
+
+### Lidarr Custom List Format
+
+The `/` endpoint returns a JSON array in the format expected by Lidarr's Custom Import List:
+
+```json
+[
+  {
+    "MusicBrainzId": "65f4f0c5-ef9e-490c-aee3-909e7ae6b2ab",
+    "ArtistName": "Metallica"
+  },
+  {
+    "MusicBrainzId": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+    "ArtistName": "Radiohead"
+  },
+  {
+    "MusicBrainzId": "9c9f1380-2516-4fc9-a3e6-f9f61941d090",
+    "ArtistName": "Muse"
+  }
+]
+```
+
+**Important Notes:**
+- The array must be at the root level (not wrapped in an object)
+- `MusicBrainzId` is the only required field for Lidarr to function
+- `ArtistName` is optional but helpful for debugging and human readability
 
 ## Troubleshooting
 
@@ -208,9 +263,14 @@ docker run --rm \
 
 - **Initial processing** can take 10-15 minutes depending on:
   - Number of recommendations
-  - MusicBrainz API response time (public API is rate-limited to 1 request/second)
+  - MusicBrainz API response time
   - Your internet connection
-- **Using a local MusicBrainz mirror** dramatically improves performance (no rate limiting)
+- **Public MusicBrainz API** is rate-limited to 1 request/second
+  - Processing 200 artists takes ~3-4 minutes just for API calls
+- **Using a local MusicBrainz mirror** dramatically improves performance:
+  - No rate limiting (10-20x faster processing)
+  - More reliable (no network latency)
+  - See [Self-Hosted MusicBrainz Mirror Setup Guide](https://github.com/blampe/hearring-aid/blob/main/docs/self-hosted-mirror-setup.md)
 - The HTTP server starts immediately, returning empty data until processing completes
 - Subsequent updates are typically much faster (only processing changes)
 
@@ -218,7 +278,7 @@ docker run --rm \
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/lb-lidarr-plex.git
+git clone https://github.com/DeviantEng/lb-lidarr-plex.git
 cd lb-lidarr-plex
 
 # Install dependencies
@@ -247,14 +307,6 @@ docker build -t lb-lidarr-plex:local .
 └── logs/                   # Application logs (if enabled)
     └── listenbrainz-integration-YYYY-MM-DD.log
 ```
-
-## Requirements
-
-- **ListenBrainz account** with listening history
-- **MetaBrainz API token** for authentication
-- **Docker** or Python 3.11+
-- **Plex Media Server** (optional, for playlist features)
-- **Lidarr** (optional, for artist import features)
 
 ## License
 
