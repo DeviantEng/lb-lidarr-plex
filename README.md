@@ -1,3 +1,5 @@
+# DEPRECATED -- FUNCTIONALITY WILL BE MOVED TO NEW PROJECT CALLED [DUCTARR](https://github.com/DeviantEng/ductarr) (NAME CHANGE LIKELY)
+
 # ListenBrainz to Lidarr and Plex Integration
 
 Automatically sync your ListenBrainz recommendations to create:
